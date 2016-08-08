@@ -37,13 +37,6 @@ import math
 import openassets.protocol
 import openassets.transactions
 
-import binascii
-import json
-import http.client as httplib
-from bitcoin.core import COIN, lx, b2lx, CBlock, CTransaction, COutPoint, CTxOut
-from bitcoin.core.script import CScript
-from bitcoin.wallet import CBitcoinAddress
-
 
 class Controller(object):
     """Contains all operations provided by Colorcore."""
@@ -223,11 +216,8 @@ class Controller(object):
             colored_outputs, to_address.to_scriptPubKey(), from_address.to_scriptPubKey(), self._as_int(amount))
 
         transaction = builder.issue(issuance_parameters, bytes(metadata, encoding='utf-8'), self._get_fees(fees))
-        # Return the unsigned transaction hex
-        return bitcoin.core.b2x(transaction.serialize())
-        # # Get back a raw unsigned tx
-        # mode = 'unsigned'
-        # return self.tx_parser((yield from self._process_transaction(transaction, mode)))
+
+        return self.tx_parser((yield from self._process_transaction(transaction, mode)))
 
     @asyncio.coroutine
     def distribute(self,
@@ -346,7 +336,7 @@ class Controller(object):
         cache = self.cache_factory()
         engine = openassets.protocol.ColoringEngine(self.provider.get_transaction, cache, self.event_loop)
 
-        unspent = self._get_utxos_from_chainpi(str(address))
+        unspent = yield from self.provider.list_unspent(None if address is None else [str(address)], **kwargs)
 
         result = []
         for item in unspent:
@@ -362,7 +352,6 @@ class Controller(object):
 
     @asyncio.coroutine
     def _process_transaction(self, transaction, mode):
-        print('args pt', locals())
         if mode == 'broadcast' or mode == 'signed':
             # Sign the transaction
             signed_transaction = yield from self.provider.sign_transaction(transaction)
@@ -378,29 +367,6 @@ class Controller(object):
             # Return the transaction in raw format as a hex string
             return transaction
 
-    #FLUENT CODE
-    def _get_utxos_from_chainpi(self, address, **kwargs):
-        connection = httplib.HTTPConnection('localhost:3000')
-        headers = {'Content-type': 'application/json'}
-        endpoint = '/api/addrs/' + address +'/listunspent'
-        connection.request('GET', endpoint)
-        response = connection.getresponse()
-        data = json.loads(response.read().decode())
-        utxos = self._format_utxos(data)
-        return utxos
-
-    def _format_utxos(self, utxos, **kwargs):
-        formattedUTXOs = []
-        for utxo in utxos:
-            utxo['outpoint'] = COutPoint(lx(utxo['txid']), utxo['vout'])
-            del utxo['txid']
-            del utxo['vout']
-
-            utxo['address'] = CBitcoinAddress(utxo['address'])
-            utxo['scriptPubKey'] = CScript(binascii.unhexlify(utxo['scriptPubKey']))
-            utxo['amount'] = int(utxo['amount'])
-            formattedUTXOs.append(utxo)
-        return formattedUTXOs
 
 class Convert(object):
     """Provides conversion helpers."""
